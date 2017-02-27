@@ -1,0 +1,134 @@
+---
+title: "Practical Machine Learning Project -- Coursera"
+author: "G.A. Pagani"
+date: "February 25, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+Your submission for the Peer Review portion should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+
+## Purpose of the project
+Create a model able to predict the correctedness of performing physical exrcise based on data acquired via tracking devices. The data is kindly provided by the researchers Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. For more information concerning the dataset please refer to [1].
+
+
+### Preliminary operations
+Libraries needed are loaded and the seed is set to allow for a reproducible result.
+```{r loadLibraries}
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+library(kernlab)
+set.seed(100)
+```
+
+
+### Data loading and data splitting
+First I start with loading the data sets. Two files have been provided for training and test set.
+```{r loadData}
+train<-read.csv("~/Documents/coursera/Course8-PracticalMachineLearning/finalExercise/pml-training.csv", stringsAsFactors = F)
+test<-read.csv("~/Documents/coursera/Course8-PracticalMachineLearning/finalExercise/pml-testing.csv", stringsAsFactors = F)
+```
+
+In order to perform selection of a model and appropriate parameters, a cross validation set has to be created where the competing models will be tested and the performances compared. The data split for training/cross validation sets will be in the ratio 70/30.
+```{r createTrainValidationSets}
+inTrain <- createDataPartition(train$classe, p = 0.7)[[1]]
+trainingSet <- train[ inTrain,]
+crossValSet <- train[-inTrain,]
+```
+
+### Variables selection
+```{r varsComputation}
+totalvariables<-dim(trainingSet)[2]
+```
+The number of variables of the data set is `r totalvariables`. Since the amount of variable is quite big, I take the approach of looking into a subset of variables that given the description of the experiment [1]. First a set of 12 variables in the data set will be used to train a set of models. Subsequently, the same models will be trained with additional 36 variables. The performance will be compared using the cross validation set.
+
+```{r variablesSelection}
+vars<-do.call(paste0, expand.grid(c("roll_","pitch_", "yaw_"),c("forearm", "arm", "belt", "dumbbell")))
+smallVarsTrain<-trainingSet[,c(vars,"classe")]
+smallVarsTrain$classe<-as.factor(smallVarsTrain$classe)
+
+vars2<-do.call(paste0, expand.grid(c("gyros_","accel_", "magnet_"),c("forearm", "arm", "belt", "dumbbell"), c("_x","_y","_z")))
+biggerVars<-trainingSet[,c(vars,vars2,"classe")]
+biggerVars$classe<-as.factor(biggerVars$classe)
+
+#pca<-preProcess(trainingSet[-c(1,3,4,5)], method = "pca", thresh = 0.9)
+#PCAedTraining <- predict(pca,trainingSet[-c(1,3,4,5)])
+```
+
+### Model Train and Selection
+Some model for classification are fitted and their performce is compared by using the cross validation set; in this way I am able to select the most promising model. The models fitted are Support Vector Machine, Decision Tree, and Random Forest.
+```{r trainModels}
+svmFit<-train(classe~., method="svmLinear", data=smallVarsTrain )
+decTree<-train(classe~.,method="rpart",data=smallVarsTrain)
+rforest<-randomForest(classe~.,data=smallVarsTrain)
+```
+The evaluation of the model is performed: prediction based on the cross validation and comparison of the performance. By looking at the overall accuracy of the model the Random Forest outperforms the other in the configuation of using 12 variables.
+```{r crossValidation}
+#PCACV<-predict(pca, crossValSet)
+
+crossVSVM<-predict(lmfit, newdata=crossValSet)
+crossVDecTree<-predict(decTree, newdata=crossValSet)
+crossVRF<-predict(rforest, newdata=crossValSet)
+
+confusionMatrix(crossValSet$classe, crossVSVM)
+confusionMatrix(crossValSet$classe,crossVDecTree)
+confusionMatrix(crossValSet$classe, crossVRF)
+
+```
+The same models are fitted this time using 48 variables to understand if there is a gain in performance. Random forest performs even better in this situation obtaining an accuracy  on the cross validation set of 99.63%. The addition of variables is beneficial also to the other models but their performance is far from those of the Random Forest.
+```{r varSelect}
+svmFit2<-train(classe~., method="svmLinear", data=biggerVars )
+decTree2<-train(classe~.,method="rpart",data=biggerVars)
+rforest2<-randomForest(classe~.,data=biggerVars)
+
+
+crossVSVM2<-predict(svmFit2, newdata=crossValSet)
+crossVDecTree2<-predict(decTree2, newdata=crossValSet)
+crossVRF2<-predict(rforest2, newdata=crossValSet)
+
+confusionMatrix(crossValSet$classe, crossVSVM2)
+confusionMatrix(crossValSet$classe,crossVDecTree2)
+confusionMatrix(crossValSet$classe, crossVRF2)
+
+
+
+```
+
+
+```{r, fig.width=6, fig.height=4}
+ rpart.plot(decTree2$finalModel, main="Decision Tree 48-variables")
+```
+
+
+```{r, fig.width=6, fig.height=4}
+plot(rforest2, main="Random Forest Error 48-variables")
+```
+
+
+
+### Decision made for the prediction on the test set
+We decide to predict the test using the best performing model that is the Random Forest model that uses 48 variables.
+
+This model provides the following categories for the exercises performed.
+```{r predictionOnTest}
+testPrediciton<-predict(rforest2, newdata=test)
+print(testPrediciton)
+```
+
+####Conclusion
+The out-of-sample error using the Random Forset model is 0.0037 based on the values obtained with the cross validation set.
+
+
+
+#### References
+[1] Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
